@@ -1,3 +1,5 @@
+#! /usr/bin/env python 
+
 import numpy as np
 import scipy.stats
 import matplotlib.pyplot as plt
@@ -114,11 +116,24 @@ def sample_motion_model(odometry, particles):
     
     '''your code here'''
     '''***        ***'''
-    delta_hat_rot1 = delta_rot1 + sample_normal_distribution(0, noise[0]*abs(delta_rot1) + )
+    sigma_rot1 = noise[0]*abs(delta_rot1) + noise[1]*abs(delta_trans)
+    sigma_trans = noise[2]*abs(delta_trans) + noise[3]*(abs(delta_rot1)+abs(delta_rot2))
+    sigma_rot2 = noise[0] * abs(delta_rot2) + noise[1] * abs(delta_trans)
+    
 
+    # move each particle by odometry + noise
+    for particle in particles:
+        new_particle = dict()
+        delta_hat_rot1 = delta_rot1 + sample_normal_distribution(0,sigma_rot1)
+        delta_hat_trans = delta_trans + sample_normal_distribution(0,sigma_trans )
+        delta_hat_rot2 = delta_rot2 + sample_normal_distribution(0, sigma_rot2 )
 
+        # calculate new particle pose
+        new_particle['x'] = particle['x'] + delta_hat_trans * np.cos( particle['theta'] + delta_hat_rot1 )
+        new_particle['y'] = particle['y'] + delta_hat_trans * np.sin( particle['theta'] + delta_hat_rot1 )
+        new_particle['theta'] = particle['theta'] + delta_hat_rot1 + delta_hat_rot2
 
-
+        new_particles.append(new_particle)
 
     return new_particles
 
@@ -128,6 +143,7 @@ def eval_sensor_model(sensor_data, particles, landmarks):
     # (probabilistic sensor models slide 33)
     #
     # The employed sensor model is range only.
+    # the function returns a list of weights for the given particle set
 
     sigma_r = 0.2
 
@@ -139,14 +155,30 @@ def eval_sensor_model(sensor_data, particles, landmarks):
     
     '''your code here'''
     '''***        ***'''
+    # rate each particle according to the measurement likelihood , so if a particle has higher measurement likelihood then 
+    # it gets a higher weight
+    for particle in particles:
 
+        all_meas_likelihood = 1.0
+        # loop for each observed landmark
+        for i in range(len(ids)):
+            lm_id = ids[i]
+            meas_range = ranges[i]
+            l_x = landmarks[lm_id][0]
+            l_y = landmarks[lm_id][1]
+            px = particle['x']
+            py = particle['y']
+            meas_range_exp = np.sqrt((l_x - px)**2 + (l_y - py)**2)
+            # evaluate sensor model
+            meas_likelihood = scipy.stats.norm.pdf(meas_range, meas_range_exp, sigma_r)
+            # combine (independent) measurements
+            all_meas_likelihood = all_meas_likelihood * meas_likelihood
 
-
-
-
-    #normalize weights
+        weights.append(all_meas_likelihood) # so each particle gets a correspoing weight 
+    
     normalizer = sum(weights)
-    weights = weights / normalizer
+    #weights = weights / normalizer
+    weights = [x / normalizer for x in weights]
 
     return weights
 
@@ -156,12 +188,31 @@ def resample_particles(particles, weights):
 
     new_particles = []
 
-    '''your code here'''
-    '''***        ***'''
+    step = 1.0 / len(particles)
 
+    # random start of first pointer
+    u = np.random.uniform(0,step)
 
+    # c = []
+    # c[0] = weights[0]
+    # # generate cdf
+    # for i in range (len(weights) - 1):
+    #     c[i+1] = c[i] + weights[i+1]
 
+    c = weights[0]
+    i = 0
 
+    # loop over all particle weights
+    for particle in particles:
+        # go through the weights until we find the particle to which the pointer points
+        while u > c:
+            c = c + weights[i]
+            i = i + 1
+        # add the particle 
+        new_particles.append(particles[i])
+        # increase the threshold
+        u = u + step
+    
 
     return new_particles
 
